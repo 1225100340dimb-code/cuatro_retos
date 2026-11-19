@@ -11,26 +11,32 @@ class GatosPage extends StatefulWidget {
 
 class _GatosPageState extends State<GatosPage> {
   final TextEditingController _textoController = TextEditingController();
-  String _frase = 'Escribe una frase para tu meme';
+  String _frase = '¡Hola humano!';
   int _actualizacion = 0;
-  bool _cargando = false;
 
-  Future<void> _crearMeme() async {
-    final texto = _textoController.text.trim();
+  final List<String> _sugerencias = [
+    'Lunes otra vez',
+    'Cinco minutos más',
+    'Hoy sí hago ejercicio',
+    'Dame de comer',
+  ];
+
+  void _crearMeme([String? sugerida]) {
+    final texto = (sugerida ?? _textoController.text).trim();
     if (texto.isEmpty) {
-      setState(() => _frase = 'Primero escribe una frase.');
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Primero escribe una frase.')),
+      );
       return;
     }
+    FocusScope.of(context).unfocus();
     setState(() {
       _frase = texto;
-      _cargando = true;
-    });
-    // Cataas genera una imagen con el texto indicado en la propia URL.
-    setState(() {
       _actualizacion++;
-      _cargando = false;
     });
   }
+
+  void _otroGato() => setState(() => _actualizacion++);
 
   @override
   void dispose() {
@@ -40,8 +46,11 @@ class _GatosPageState extends State<GatosPage> {
 
   @override
   Widget build(BuildContext context) {
+    final esquema = Theme.of(context).colorScheme;
     final texto = Uri.encodeComponent(_frase);
-    final url = 'https://cataas.com/cat/says/$texto?fontSize=40&fontColor=white&v=$_actualizacion';
+    // Cataas genera una imagen con el texto indicado en la propia URL.
+    final url =
+        'https://cataas.com/cat/says/$texto?fontSize=40&fontColor=white&v=$_actualizacion';
 
     return ListView(
       padding: const EdgeInsets.all(16),
@@ -63,45 +72,64 @@ class _GatosPageState extends State<GatosPage> {
           ),
           onSubmitted: (_) => _crearMeme(),
         ),
-        const SizedBox(height: 8),
-        FilledButton.icon(
-          onPressed: _cargando ? null : _crearMeme,
-          icon: const Icon(Icons.auto_awesome),
-          label: const Text('Crear meme'),
+        Wrap(
+          spacing: 8,
+          runSpacing: 4,
+          children: _sugerencias
+              .map((s) => ActionChip(
+                    label: Text(s),
+                    onPressed: () {
+                      _textoController.text = s;
+                      _crearMeme(s);
+                    },
+                  ))
+              .toList(),
+        ),
+        const SizedBox(height: 14),
+        Row(
+          children: [
+            Expanded(
+              child: FilledButton.icon(
+                onPressed: _crearMeme,
+                icon: const Icon(Icons.auto_awesome),
+                label: const Text('Crear meme'),
+              ),
+            ),
+            const SizedBox(width: 10),
+            IconButton.filledTonal(
+              onPressed: _otroGato,
+              tooltip: 'Otro gato',
+              icon: const Icon(Icons.shuffle),
+              style: IconButton.styleFrom(minimumSize: const Size(50, 50)),
+            ),
+          ],
         ),
         const SizedBox(height: 18),
         Card(
           clipBehavior: Clip.antiAlias,
-          child: Column(
-            children: [
-              AspectRatio(
-                aspectRatio: 1,
-                child: Image.network(
-                  url,
-                  key: ValueKey(_actualizacion),
-                  fit: BoxFit.cover,
-                  loadingBuilder: (context, child, progress) {
-                    if (progress == null) return child;
-                    return const Center(child: CircularProgressIndicator());
-                  },
-                  errorBuilder: (_, __, ___) => const Center(
-                    child: Padding(
-                      padding: EdgeInsets.all(24),
-                      child: Text(
-                        'No se pudo cargar el gato. Revisa tu conexión e inténtalo otra vez.',
-                        textAlign: TextAlign.center,
-                      ),
-                    ),
+          child: AspectRatio(
+            aspectRatio: 1,
+            child: Image.network(
+              url,
+              key: ValueKey(_actualizacion),
+              fit: BoxFit.cover,
+              loadingBuilder: (context, child, progreso) {
+                if (progreso == null) return child;
+                return Container(
+                  color: esquema.surfaceContainerHighest,
+                  child: const Center(child: CircularProgressIndicator()),
+                );
+              },
+              errorBuilder: (_, __, ___) => const Center(
+                child: Padding(
+                  padding: EdgeInsets.all(24),
+                  child: Text(
+                    'No se pudo cargar el gato. Revisa tu conexión e inténtalo otra vez.',
+                    textAlign: TextAlign.center,
                   ),
                 ),
               ),
-              Padding(
-                padding: const EdgeInsets.all(12),
-                child: Text(_frase,
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(fontWeight: FontWeight.w600)),
-              ),
-            ],
+            ),
           ),
         ),
       ],

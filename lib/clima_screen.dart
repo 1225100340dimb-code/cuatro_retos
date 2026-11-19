@@ -3,7 +3,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 
-import 'app_colors.dart';
+import 'config/api_keys.dart';
 import 'reto_widgets.dart';
 
 class ClimaPage extends StatefulWidget {
@@ -14,20 +14,25 @@ class ClimaPage extends StatefulWidget {
 }
 
 class _ClimaPageState extends State<ClimaPage> {
-  final TextEditingController _apiController = TextEditingController();
   final TextEditingController _ciudadController =
       TextEditingController(text: 'Dolores Hidalgo');
   bool _cargando = false;
   Map<String, dynamic>? _clima;
-  String _mensaje = 'Ingresa tu clave de WeatherAPI para consultar el clima.';
+  String _mensaje = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _consultarClima();
+  }
 
   Future<void> _consultarClima() async {
-    final apiKey = _apiController.text.trim();
     final ciudad = _ciudadController.text.trim();
-    if (apiKey.isEmpty || ciudad.isEmpty) {
-      setState(() => _mensaje = 'Completa la clave API y la ciudad.');
+    if (ciudad.isEmpty) {
+      setState(() => _mensaje = 'Escribe el nombre de una ciudad.');
       return;
     }
+    FocusScope.of(context).unfocus();
 
     setState(() {
       _cargando = true;
@@ -37,19 +42,21 @@ class _ClimaPageState extends State<ClimaPage> {
 
     try {
       final uri = Uri.https('api.weatherapi.com', '/v1/current.json', {
-        'key': apiKey,
+        'key': ApiKeys.weather,
         'q': ciudad,
         'lang': 'es',
       });
       final respuesta = await http.get(uri);
+      if (!mounted) return;
       if (respuesta.statusCode == 200) {
-        setState(() => _clima = jsonDecode(respuesta.body));
+        setState(() =>
+            _clima = jsonDecode(utf8.decode(respuesta.bodyBytes)));
       } else {
         setState(() => _mensaje =
-            'No se pudo consultar el clima (${respuesta.statusCode}). Revisa la clave o el nombre de la ciudad.');
+            'No se pudo consultar el clima (${respuesta.statusCode}). Revisa el nombre de la ciudad.');
       }
     } catch (e) {
-      setState(() => _mensaje = 'Error de conexión: $e');
+      if (mounted) setState(() => _mensaje = 'Error de conexión: $e');
     } finally {
       if (mounted) setState(() => _cargando = false);
     }
@@ -57,7 +64,6 @@ class _ClimaPageState extends State<ClimaPage> {
 
   @override
   void dispose() {
-    _apiController.dispose();
     _ciudadController.dispose();
     super.dispose();
   }
@@ -67,6 +73,10 @@ class _ClimaPageState extends State<ClimaPage> {
     final ubicacion = _clima?['location'];
     final actual = _clima?['current'];
     final condicion = actual?['condition'];
+    final esDia = (actual?['is_day'] ?? 1) == 1;
+    final colores = esDia
+        ? [const Color(0xFF4FA3F7), const Color(0xFF5B5BD6)]
+        : [const Color(0xFF1E2A5A), const Color(0xFF3B2F7A)];
 
     return ListView(
       padding: const EdgeInsets.all(16),
@@ -79,79 +89,119 @@ class _ClimaPageState extends State<ClimaPage> {
           icono: Icons.cloud,
         ),
         TextField(
-          controller: _apiController,
-          obscureText: true,
-          decoration: const InputDecoration(
-            labelText: 'Clave API de WeatherAPI',
-            prefixIcon: Icon(Icons.key),
-          ),
-        ),
-        const SizedBox(height: 12),
-        TextField(
           controller: _ciudadController,
-          decoration: const InputDecoration(
+          textInputAction: TextInputAction.search,
+          decoration: InputDecoration(
             labelText: 'Ciudad',
-            prefixIcon: Icon(Icons.location_city),
+            prefixIcon: const Icon(Icons.location_city),
+            suffixIcon: IconButton(
+              icon: const Icon(Icons.search),
+              onPressed: _cargando ? null : _consultarClima,
+            ),
           ),
           onSubmitted: (_) => _consultarClima(),
         ),
-        const SizedBox(height: 12),
-        FilledButton.icon(
-          onPressed: _cargando ? null : _consultarClima,
-          icon: const Icon(Icons.wb_sunny_outlined),
-          label: const Text('Consultar clima'),
-        ),
         const SizedBox(height: 16),
-        if (_cargando) const Center(child: CircularProgressIndicator()),
-        if (_mensaje.isNotEmpty) MensajeEstado(texto: _mensaje),
-        if (_clima != null)
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(22),
-              child: Column(
-                children: [
-                  Text(
-                    '${ubicacion?['name'] ?? ''}, ${ubicacion?['country'] ?? ''}',
-                    style: Theme.of(context).textTheme.titleLarge,
-                    textAlign: TextAlign.center,
-                  ),
-                  if (condicion?['icon'] != null)
-                    Image.network(
-                      'https:${condicion['icon']}',
-                      width: 90,
-                      height: 90,
-                    ),
-                  Text(
-                    '${actual?['temp_c'] ?? '--'} °C',
-                    style: const TextStyle(
-                        fontSize: 42, fontWeight: FontWeight.bold),
-                  ),
-                  Text(
-                    condicion?['text'] ?? '',
-                    style: Theme.of(context).textTheme.titleMedium,
-                  ),
-                  const Divider(height: 28),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceAround,
-                    children: [
-                      DatoClima(
-                        icono: Icons.water_drop_outlined,
-                        titulo: 'Humedad',
-                        valor: '${actual?['humidity'] ?? '--'}%',
-                      ),
-                      DatoClima(
-                        icono: Icons.air,
-                        titulo: 'Viento',
-                        valor: '${actual?['wind_kph'] ?? '--'} km/h',
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 14),
-                  Text('Actualizado: ${actual?['last_updated'] ?? '--'}'),
-                ],
+        if (_cargando)
+          const Padding(
+            padding: EdgeInsets.all(32),
+            child: Center(child: CircularProgressIndicator()),
+          ),
+        if (_mensaje.isNotEmpty)
+          MensajeEstado(
+            texto: _mensaje,
+            icono: Icons.cloud_off,
+            alReintentar: _consultarClima,
+          ),
+        if (_clima != null) ...[
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(24),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: colores,
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
               ),
+              borderRadius: BorderRadius.circular(28),
+            ),
+            child: Column(
+              children: [
+                Text(
+                  '${ubicacion?['name'] ?? ''}, ${ubicacion?['country'] ?? ''}',
+                  style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 22,
+                      fontWeight: FontWeight.bold),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    if (condicion?['icon'] != null)
+                      Image.network(
+                        'https:${(condicion['icon'] as String).replaceFirst('64x64', '128x128')}',
+                        width: 90,
+                        height: 90,
+                        errorBuilder: (_, __, ___) => const Icon(
+                            Icons.wb_cloudy,
+                            size: 64,
+                            color: Colors.white),
+                      ),
+                    Text(
+                      '${(actual?['temp_c'] as num?)?.round() ?? '--'}°',
+                      style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 68,
+                          fontWeight: FontWeight.w300),
+                    ),
+                  ],
+                ),
+                Text(
+                  condicion?['text'] ?? '',
+                  style: const TextStyle(color: Colors.white, fontSize: 18),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Sensación térmica ${(actual?['feelslike_c'] as num?)?.round() ?? '--'}°',
+                  style: const TextStyle(color: Colors.white70),
+                ),
+              ],
             ),
           ),
+          const SizedBox(height: 14),
+          Row(
+            children: [
+              DatoClima(
+                icono: Icons.water_drop_outlined,
+                titulo: 'Humedad',
+                valor: '${actual?['humidity'] ?? '--'}%',
+              ),
+              const SizedBox(width: 10),
+              DatoClima(
+                icono: Icons.air,
+                titulo: 'Viento',
+                valor: '${(actual?['wind_kph'] as num?)?.round() ?? '--'} km/h',
+              ),
+              const SizedBox(width: 10),
+              DatoClima(
+                icono: Icons.wb_sunny_outlined,
+                titulo: 'UV',
+                valor: '${(actual?['uv'] as num?)?.round() ?? '--'}',
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Center(
+            child: Text(
+              'Actualizado: ${actual?['last_updated'] ?? '--'}',
+              style: TextStyle(
+                  fontSize: 12,
+                  color: Theme.of(context).colorScheme.onSurfaceVariant),
+            ),
+          ),
+        ],
       ],
     );
   }
@@ -171,13 +221,25 @@ class DatoClima extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      children: [
-        Icon(icono, size: 26, color: colorPrincipal),
-        const SizedBox(height: 5),
-        Text(titulo),
-        Text(valor, style: const TextStyle(fontWeight: FontWeight.bold)),
-      ],
+    final esquema = Theme.of(context).colorScheme;
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 14),
+        decoration: BoxDecoration(
+          color: esquema.surfaceContainerHighest.withValues(alpha: 0.6),
+          borderRadius: BorderRadius.circular(18),
+        ),
+        child: Column(
+          children: [
+            Icon(icono, size: 26, color: esquema.primary),
+            const SizedBox(height: 6),
+            Text(valor, style: const TextStyle(fontWeight: FontWeight.bold)),
+            Text(titulo,
+                style: TextStyle(
+                    fontSize: 12, color: esquema.onSurfaceVariant)),
+          ],
+        ),
+      ),
     );
   }
 }
